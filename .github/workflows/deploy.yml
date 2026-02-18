@@ -1,12 +1,68 @@
-# FOHOW Exchange — Auto Deploy
-# TODO: Настроить после конфигурации сервера
-name: Deploy Exchange
+name: Deploy to Server
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Placeholder
-        run: echo "Deploy will be configured later"
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build project
+        run: npm run build
+      - name: Test SSH connection
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "✅ SSH connection successful!"
+            whoami
+            pwd
+      - name: Deploy frontend via rsync
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key
+          chmod 600 private_key
+          rsync -avz --delete -e "ssh -i private_key -o StrictHostKeyChecking=no" \
+            dist/assets/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.PROJECT_PATH }}/assets/
+          rsync -avz -e "ssh -i private_key -o StrictHostKeyChecking=no" \
+            --exclude='assets' \
+            dist/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.PROJECT_PATH }}/
+          rm private_key
+      - name: Update API and restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.PROJECT_PATH }}
+            git pull origin main
+            cd api
+            pnpm install --prod
+            cd ..
+            systemctl restart exchange-api
+            echo "✅ FoBMEN API service restarted!"
+            systemctl status exchange-api --no-pager
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "✅ FoBMEN deployment complete!"
+            echo "Frontend files:"
+            ls -lah ${{ secrets.PROJECT_PATH }} | head -n 10
+            echo ""
+            echo "API status:"
+            systemctl is-active exchange-api
