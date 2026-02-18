@@ -1,0 +1,12 @@
+# FOHOW Exchange — Auto Deploy
+# TODO: Настроить после конфигурации сервера
+name: Deploy Exchange
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "Deploy will be configured later"
